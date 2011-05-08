@@ -80,7 +80,7 @@ module Data.FMList (
   ) where
 
 import Prelude 
-  ( (.), ($), ($!), flip, const, id, error
+  ( (.), ($), ($!), flip, const, error
   , Either(..), either
   , Bool(..), (&&)
   , Ord(..), Num(..), Int
@@ -268,7 +268,8 @@ foldMapA f = unWrapApp . foldMap (WrapApp . f)
 
 
 instance Functor FMList where
-  fmap g     = transform (. g)
+  fmap g     = transform (\f -> f . g)
+  a <$ l     = transform (\f -> const (f a)) l
   
 instance Foldable FMList where
   foldMap    = flip unFM
@@ -279,12 +280,15 @@ instance Traversable FMList where
 instance Monad FMList where
   return     = one
   m >>= g    = transform (\f -> foldMap f . g) m
+  m >> k     = transform (\f -> const (foldMap f k)) m
   fail _     = nil
 
 instance Applicative FMList where
   pure       = one
   gs <*> xs  = transform (\f g -> unFM xs (f . g)) gs
-    
+  as <*  bs  = transform (\f a -> unFM bs (const (f a))) as
+  as  *> bs  = transform (\f   -> const (unFM bs f)) as
+      
 instance Monoid (FMList a) where
   mempty     = nil
   mappend    = (><)
