@@ -1,7 +1,7 @@
 name:                fmlist
-version:             0.8
+version:             0.9
 synopsis:            FoldMap lists
-description:         
+description:
   FoldMap lists are lists represented by their foldMap function.
   FoldMap lists have O(1) cons, snoc and append, just like DLists,
   but other operations might have favorable performance
@@ -22,7 +22,7 @@ Library
   exposed-modules:     Data.FMList
   build-depends:       base >= 3 && < 5
   default-language:    Haskell98
-  
+
 source-repository head
   type:     git
   location: git://github.com/sjoerdvisscher/fmlist.git

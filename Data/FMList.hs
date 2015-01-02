@@ -29,57 +29,57 @@
 {-# LANGUAGE RankNTypes #-}
 
 
-module Data.FMList ( 
+module Data.FMList (
 
     FMList(..)
   , transform
-    
-  -- * Construction  
+
+  -- * Construction
   , empty
   , singleton
   , cons
   , snoc
   , pair
   , append
-  
+
   , fromList
   , fromFoldable
-  
+
   -- * Basic functions
   , null
   , length
   , genericLength
-  
+
   , head
   , tail
   , last
   , init
   , reverse
-  
+
   -- * Folding
   , toList
   , flatten
   , foldMapA
-  
+
   , filter
   , take
   , drop
   , takeWhile
   , dropWhile
-  
+
   , zip
   , zipWith
-  
+
   -- * Unfolding
   , iterate
   , repeat
   , cycle
   , unfold
   , unfoldr
-  
+
   ) where
 
-import Prelude 
+import Prelude
   ( (.), ($), ($!), flip, const, error
   , Either(..), either
   , Bool(..), (&&)
@@ -88,8 +88,8 @@ import Prelude
   )
 import Data.Maybe (Maybe(..), maybe, fromMaybe, isNothing)
 import Data.Monoid
-import Data.Foldable
-import Data.Traversable
+import Data.Foldable (Foldable, foldMap, foldr, toList)
+import Data.Traversable (Traversable, traverse)
 import Control.Monad
 import Control.Applicative
 
@@ -97,7 +97,7 @@ import Control.Applicative
 --
 newtype FMList a = FM { unFM :: forall m . Monoid m => (a -> m) -> m }
 
--- | The function 'transform' transforms a list by changing 
+-- | The function 'transform' transforms a list by changing
 -- the map function that is passed to 'foldMap'.
 --
 -- It has the following property:
@@ -117,7 +117,7 @@ newtype FMList a = FM { unFM :: forall m . Monoid m => (a -> m) -> m }
 --  * @= transform ((. g) . foldMap) m@
 --
 --  * @= transform (\\f -> foldMap f . g) m@
--- 
+--
 transform :: (forall m. Monoid m => (a -> m) -> (b -> m)) -> FMList b -> FMList a
 transform t (FM l) = FM (l . t)
 
@@ -260,7 +260,7 @@ instance (Applicative f, Monoid m) => Monoid (WrapApp f m) where
   mempty                          = WrapApp $ pure mempty
   mappend (WrapApp a) (WrapApp b) = WrapApp $ mappend <$> a <*> b
 
--- | Map each element of a structure to an action, evaluate these actions from left to right, 
+-- | Map each element of a structure to an action, evaluate these actions from left to right,
 -- and concat the monoid results.
 foldMapA :: (Foldable t, Applicative f, Monoid m) => (a -> f m) -> t a -> f m
 foldMapA f = unWrapApp . foldMap (WrapApp . f)
@@ -270,10 +270,10 @@ foldMapA f = unWrapApp . foldMap (WrapApp . f)
 instance Functor FMList where
   fmap g     = transform (\f -> f . g)
   a <$ l     = transform (\f -> const (f a)) l
-  
+
 instance Foldable FMList where
   foldMap    = flip unFM
-  
+
 instance Traversable FMList where
   traverse f = foldMapA (fmap one . f)
 
@@ -288,22 +288,22 @@ instance Applicative FMList where
   gs <*> xs  = transform (\f g -> unFM xs (f . g)) gs
   as <*  bs  = transform (\f a -> unFM bs (const (f a))) as
   as  *> bs  = transform (\f   -> const (unFM bs f)) as
-      
+
 instance Monoid (FMList a) where
   mempty     = nil
   mappend    = (><)
-  
+
 instance MonadPlus FMList where
   mzero      = nil
   mplus      = (><)
-  
+
 instance Alternative FMList where
   empty      = nil
   (<|>)      = (><)
-  
+
 instance Show a => Show (FMList a) where
   show l     = "fromList " ++ (show $! toList l)
-  
+
 
 fromMaybeOrError :: Maybe a -> String -> a
 fromMaybeOrError ma e = fromMaybe (error e) ma
