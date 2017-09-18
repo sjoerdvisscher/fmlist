@@ -26,6 +26,7 @@
 -- > *> last e
 -- > 2
 -----------------------------------------------------------------------------
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RankNTypes #-}
 
 
@@ -88,6 +89,9 @@ import Prelude
   )
 import Data.Maybe (Maybe(..), maybe, fromMaybe, isNothing)
 import Data.Monoid
+#if MIN_VERSION_base(4,9,0)
+import qualified Data.Semigroup as Semigroup
+#endif
 import Data.Foldable (Foldable, foldMap, foldr, toList)
 import Data.Traversable (Traversable, traverse)
 import Control.Monad
@@ -256,9 +260,15 @@ unfold g     = transform (\f -> either (foldMap f . unfold g) f) . g
 
 
 newtype WrapApp f m = WrapApp { unWrapApp :: f m }
+#if MIN_VERSION_base(4,9,0)
+instance (Applicative f, Semigroup.Semigroup m) => Semigroup.Semigroup (WrapApp f m) where
+  WrapApp a <> WrapApp b = WrapApp $ (Semigroup.<>) <$> a <*> b
+#endif
 instance (Applicative f, Monoid m) => Monoid (WrapApp f m) where
   mempty                          = WrapApp $ pure mempty
+#if !(MIN_VERSION_base(4,11,0))
   mappend (WrapApp a) (WrapApp b) = WrapApp $ mappend <$> a <*> b
+#endif
 
 -- | Map each element of a structure to an action, evaluate these actions from left to right,
 -- and concat the monoid results.
