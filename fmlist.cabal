@@ -1,5 +1,5 @@
 name:                fmlist
-version:             0.9
+version:             0.9.1
 synopsis:            FoldMap lists
 description:
   FoldMap lists are lists represented by their foldMap function.
