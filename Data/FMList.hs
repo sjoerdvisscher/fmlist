@@ -88,11 +88,10 @@ import Prelude
   , Show(..), String, (++)
   )
 import Data.Maybe (Maybe(..), maybe, fromMaybe, isNothing)
-import Data.Monoid
+import Data.Monoid (Monoid, mempty, mappend, Dual(..), First(..), Last(..), Sum(..))
 
 #if MIN_VERSION_base(4,9,0)
-import Data.Semigroup (Semigroup)
-import qualified Data.Semigroup (Semigroup((<>)))
+import Data.Semigroup (Semigroup((<>)))
 #endif
 
 import Data.Foldable (Foldable, foldMap, foldr, toList)
@@ -265,8 +264,8 @@ unfold g     = transform (\f -> either (foldMap f . unfold g) f) . g
 newtype WrapApp f m = WrapApp { unWrapApp :: f m }
 
 #if MIN_VERSION_base(4,9,0)
-instance (Applicative f, Monoid m) => Semigroup (WrapApp f m) where
-  (<>) = mappend
+instance (Applicative f, Semigroup m) => Semigroup (WrapApp f m) where
+  WrapApp a <> WrapApp b = WrapApp $ (<>) <$> a <*> b
 #endif
 
 instance (Applicative f, Monoid m) => Monoid (WrapApp f m) where
@@ -304,7 +303,7 @@ instance Applicative FMList where
 
 #if MIN_VERSION_base(4,9,0)
 instance Semigroup (FMList a) where
-  (<>) = mappend
+  (<>) = (><)
 #endif
 
 instance Monoid (FMList a) where
