@@ -293,7 +293,10 @@ instance Monad FMList where
   return     = one
   m >>= g    = transform (\f -> foldMap f . g) m
   m >> k     = transform (\f -> const (foldMap f k)) m
+
+#if !MIN_VERSION_base(4,13,0)
   fail _     = nil
+#endif
 
 instance Applicative FMList where
   pure       = one
