@@ -97,6 +97,7 @@ import Data.Semigroup (Semigroup((<>)))
 import Data.Foldable (Foldable, foldMap, foldr, toList)
 import Data.Traversable (Traversable, traverse)
 import Control.Monad
+import Control.Monad.Fail as MF
 import Control.Applicative
 
 -- | 'FMList' is a 'foldMap' function wrapped up in a newtype.
@@ -293,7 +294,9 @@ instance Monad FMList where
   return     = one
   m >>= g    = transform (\f -> foldMap f . g) m
   m >> k     = transform (\f -> const (foldMap f k)) m
-  fail _     = nil
+
+instance MF.MonadFail FMList where
+  fail _ = nil
 
 instance Applicative FMList where
   pure       = one
