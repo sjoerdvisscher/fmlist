@@ -285,7 +285,7 @@ instance Functor FMList where
   a <$ l     = transform (\f -> const (f a)) l
 
 instance Foldable FMList where
-  foldMap    = flip unFM
+  foldMap m f = unFM f m
 
 instance Traversable FMList where
   traverse f = foldMapA (fmap one . f)
