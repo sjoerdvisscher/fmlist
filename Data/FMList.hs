@@ -267,17 +267,26 @@ newtype WrapApp f m = WrapApp { unWrapApp :: f m }
 #if MIN_VERSION_base(4,9,0)
 instance (Applicative f, Semigroup m) => Semigroup (WrapApp f m) where
   WrapApp a <> WrapApp b = WrapApp $ (<>) <$> a <*> b
-#endif
 
+instance (Applicative f, Semigroup m, Monoid m) => Monoid (WrapApp f m) where
+  mempty  = WrapApp $ pure mempty
+  mappend = (<>)
+#else
 instance (Applicative f, Monoid m) => Monoid (WrapApp f m) where
   mempty                          = WrapApp $ pure mempty
   mappend (WrapApp a) (WrapApp b) = WrapApp $ mappend <$> a <*> b
+#endif
 
 -- | Map each element of a structure to an action, evaluate these actions from left to right,
 -- and concat the monoid results.
-foldMapA :: (Foldable t, Applicative f, Monoid m) => (a -> f m) -> t a -> f m
+foldMapA
+  :: ( Foldable t, Applicative f
+#if MIN_VERSION_base(4,9,0)
+     , Semigroup m
+#endif
+     , Monoid m)
+  => (a -> f m) -> t a -> f m
 foldMapA f = unWrapApp . foldMap (WrapApp . f)
-
 
 
 instance Functor FMList where
@@ -291,9 +300,9 @@ instance Traversable FMList where
   traverse f = foldMapA (fmap one . f)
 
 instance Monad FMList where
-  return     = one
+  return     = pure
   m >>= g    = transform (\f -> foldMap f . g) m
-  m >> k     = transform (\f -> const (foldMap f k)) m
+  (>>)       = (*>)
 
 instance MF.MonadFail FMList where
   fail _ = nil
@@ -311,7 +320,11 @@ instance Semigroup (FMList a) where
 
 instance Monoid (FMList a) where
   mempty     = nil
+#if MIN_VERSION_base(4,9,0)
+  mappend    = (<>)
+#else
   mappend    = (><)
+#endif
 
 instance MonadPlus FMList where
   mzero      = nil
