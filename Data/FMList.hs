@@ -214,13 +214,6 @@ drop         = transformCS (\f e c i -> if i > 0 then c mempty (i-1) else c (f e
 dropWhile    :: (a -> Bool) -> FMList a -> FMList a
 dropWhile p  = transformCS (\f e c ok -> if ok && p e then c mempty True else c (f e) False) True
 
-zipWith      :: (a -> b -> c) -> FMList a -> FMList b -> FMList c
-zipWith t    = transformCS (\f e2 c r1 -> foldr (\e1 _ -> c (f (t e1 e2)) (drop (1::Int) r1)) mempty r1)
-
-zip          :: FMList a -> FMList b -> FMList (a,b)
-zip          = zipWith (,)
-
-
 iterate      :: (a -> a) -> a -> FMList a
 iterate f x  = x `cons` iterate f (f x)
 
@@ -340,3 +333,56 @@ instance Show a => Show (FMList a) where
 
 fromMaybeOrError :: Maybe a -> String -> a
 fromMaybeOrError ma e = fromMaybe (error e) ma
+
+
+-- -------
+-- The below, including the implementation of zipWith, is stolen (almost)
+-- wholesale from Coroutining Folds with Hyperfunction, by J. Launchbury, S.
+-- Krstic, and T. E. Sauerwein.
+--
+-- https://arxiv.org/pdf/1309.5135.pdf
+--
+-- I don't claim to understand it, but it's empirically obvious that it's
+-- asymptotically faster than what was used before, at least for things
+-- like
+--
+--   sum (zipWith (+) (fromList [1..m]) (fromList [1..n]))
+
+newtype H a b = Fn {invoke :: H b a -> b}
+
+(#) :: H b c -> H a b -> H a c
+f # g = Fn (\k -> invoke f (g # k))
+
+self :: H a a
+self = liftH (\x -> x)
+
+liftH :: (a -> b) -> H a b
+liftH f = f << liftH f
+
+(<<) :: (a -> b) -> H a b -> H a b
+f << q = Fn (\k -> f (invoke k q))
+
+base :: a -> H b a
+base p = Fn (\_k -> p)
+
+run :: H a a -> a
+run f = invoke f self
+
+foldH :: Foldable t => t a -> (a -> b -> c) -> c -> H b c
+foldH xs c n = foldr (\x z -> c x << z) (base n) xs
+
+zip          :: FMList a -> FMList b -> FMList (a,b)
+zip          = zipWith (,)
+
+zipWith :: (a -> b -> c) -> FMList a -> FMList b -> FMList c
+zipWith f xs ys = run (zipWithH f xs ys cons empty)
+
+zipWithH :: (x -> y -> z)
+                  -> FMList x -> FMList y -> (z -> r -> c) -> c -> H r c
+zipWithH f xs ys c n = foldH xs frst n # foldH ys scnd Nothing2
+  where
+    frst _x Nothing2 = n
+    frst x (Just2 y xys) = c (f x y) xys
+    scnd y xys = Just2 y xys
+
+data Maybe2 a b = Nothing2 | Just2 a b
