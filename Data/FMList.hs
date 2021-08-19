@@ -89,6 +89,9 @@ import Prelude
   )
 import Data.Maybe (Maybe(..), maybe, fromMaybe, isNothing)
 import Data.Monoid (Monoid, mempty, mappend, Dual(..), First(..), Last(..), Sum(..))
+#if MIN_VERSION_base(4,12,0)
+import Data.Monoid (Ap (..))
+#endif
 
 #if MIN_VERSION_base(4,9,0)
 import Data.Semigroup (Semigroup((<>)))
@@ -261,20 +264,21 @@ unfoldr g    = unfold (maybe empty (\(a, b) -> Right a `pair` Left b) . g)
 unfold       :: (b -> FMList (Either b a)) -> b -> FMList a
 unfold g     = transform (\f -> either (foldMap f . unfold g) f) . g
 
+#if !MIN_VERSION_base(4,12,0)
+newtype Ap f m = Ap { getAp :: f m }
 
-newtype WrapApp f m = WrapApp { unWrapApp :: f m }
+#  if MIN_VERSION_base(4,9,0)
+instance (Applicative f, Semigroup m) => Semigroup (Ap f m) where
+  Ap a <> Ap b = Ap $ (<>) <$> a <*> b
 
-#if MIN_VERSION_base(4,9,0)
-instance (Applicative f, Semigroup m) => Semigroup (WrapApp f m) where
-  WrapApp a <> WrapApp b = WrapApp $ (<>) <$> a <*> b
-
-instance (Applicative f, Semigroup m, Monoid m) => Monoid (WrapApp f m) where
-  mempty  = WrapApp $ pure mempty
+instance (Applicative f, Semigroup m, Monoid m) => Monoid (Ap f m) where
+  mempty  = Ap $ pure mempty
   mappend = (<>)
-#else
-instance (Applicative f, Monoid m) => Monoid (WrapApp f m) where
-  mempty                          = WrapApp $ pure mempty
-  mappend (WrapApp a) (WrapApp b) = WrapApp $ mappend <$> a <*> b
+#  else
+instance (Applicative f, Monoid m) => Monoid (Ap f m) where
+  mempty                          = Ap $ pure mempty
+  mappend (Ap a) (Ap b) = Ap $ mappend <$> a <*> b
+#  endif
 #endif
 
 -- | Map each element of a structure to an action, evaluate these actions from left to right,
@@ -286,7 +290,7 @@ foldMapA
 #endif
      , Monoid m)
   => (a -> f m) -> t a -> f m
-foldMapA f = unWrapApp . foldMap (WrapApp . f)
+foldMapA f = getAp . foldMap (Ap . f)
 
 
 instance Functor FMList where
