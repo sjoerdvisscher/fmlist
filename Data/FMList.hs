@@ -87,6 +87,7 @@ import Prelude
   , Ord(..), Num(..), Int
   , Show(..), String, (++)
   )
+import qualified Prelude as P
 import Data.Maybe (Maybe(..), maybe, fromMaybe, isNothing)
 import Data.Monoid (Monoid, mempty, mappend, Dual(..), First(..), Last(..), Sum(..))
 
@@ -215,7 +216,7 @@ dropWhile    :: (a -> Bool) -> FMList a -> FMList a
 dropWhile p  = transformCS (\f e c ok -> if ok && p e then c mempty True else c (f e) False) True
 
 zipWith      :: (a -> b -> c) -> FMList a -> FMList b -> FMList c
-zipWith t    = transformCS (\f e2 c r1 -> foldr (\e1 _ -> c (f (t e1 e2)) (drop (1::Int) r1)) mempty r1)
+zipWith t xs ys = fromList $ P.zipWith t (toList xs) (toList ys)
 
 zip          :: FMList a -> FMList b -> FMList (a,b)
 zip          = zipWith (,)
