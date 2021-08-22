@@ -28,6 +28,9 @@
 -----------------------------------------------------------------------------
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
 
 
 module Data.FMList (
@@ -40,6 +43,8 @@ module Data.FMList (
   , singleton
   , cons
   , snoc
+  , viewl
+  , viewr
   , pair
   , append
 
@@ -63,6 +68,7 @@ module Data.FMList (
   , foldMapA
 
   , filter
+  , filterM
   , take
   , drop
   , takeWhile
@@ -78,10 +84,13 @@ module Data.FMList (
   , unfold
   , unfoldr
 
+  -- * Transforming
+  , mapMaybe
+  , wither
   ) where
 
 import Prelude
-  ( (.), ($), ($!), flip, const, error
+  ( (.), ($), ($!), flip, const, error, otherwise
   , Either(..), either
   , Bool(..), (&&)
   , Ord(..), Num(..), Int
@@ -92,18 +101,34 @@ import Data.Maybe (Maybe(..), maybe, fromMaybe, isNothing)
 import Data.Monoid (Monoid, mempty, mappend, Dual(..), First(..), Last(..), Sum(..))
 
 #if MIN_VERSION_base(4,9,0)
-import Data.Semigroup (Semigroup((<>)))
+import Data.Semigroup (Semigroup)
+import qualified Data.Semigroup as S
 #endif
 
 import Data.Foldable (Foldable, foldMap, foldr, toList)
 import Data.Traversable (Traversable, traverse)
-import Control.Monad
+import Control.Monad hiding (filterM)
 import Control.Monad.Fail as MF
 import Control.Applicative
 
 -- | 'FMList' is a 'foldMap' function wrapped up in a newtype.
 --
 newtype FMList a = FM { unFM :: forall m . Monoid m => (a -> m) -> m }
+
+infixr 6 <>
+
+-- We define our own (<>) instead of using the one from Data.Semigroup
+-- or Data.Monoid. This has two advantages:
+--
+-- 1. It avoids certain annoying compatibility issues in constraints.
+-- 2. In the situation (sadly common in this context) where things
+--    don't specialize and we actually pass a Monoid dictionary, it's
+--    faster to extract mempty from that dictionary than to first
+--    extract the Semigroup superclass dictionary and then extract its
+--    (<>) method.
+(<>) :: Monoid m => m -> m -> m
+(<>) = mappend
+{-# INLINE (<>) #-}
 
 -- | The function 'transform' transforms a list by changing
 -- the map function that is passed to 'foldMap'.
@@ -176,18 +201,77 @@ length       = genericLength
 genericLength :: Num b => FMList a -> b
 genericLength l = getSum $ unFM l (const $ Sum 1)
 
+infixl 5 :<
+data ViewL a
+  = EmptyL
+  | a :< FMList a
+  deriving (Show, Functor, Foldable, Traversable)
+
+unviewl :: ViewL a -> FMList a
+unviewl EmptyL = nil
+unviewl (x :< xs) = cons x xs
+
+#if MIN_VERSION_base(4,9,0)
+instance Semigroup (ViewL a) where
+  EmptyL <> v = v
+  (x :< xs) <> v = x :< (xs >< unviewl v)
+#endif
+
+instance Monoid (ViewL a) where
+  mempty     = EmptyL
+#if MIN_VERSION_base(4,9,0)
+  mappend    = (S.<>)
+#else
+  EmptyL `mappend` v = v
+  (x :< xs) `mappend` v = x :< (xs >< unviewl v)
+#endif
+
+infixr 5 :>
+data ViewR a
+  = EmptyR
+  | FMList a :> a
+  deriving (Show, Functor, Foldable, Traversable)
+
+unviewr :: ViewR a -> FMList a
+unviewr EmptyR = nil
+unviewr (xs :> x) = xs `snoc` x
+
+#if MIN_VERSION_base(4,9,0)
+instance Semigroup (ViewR a) where
+  v <> EmptyR = v
+  v <> (xs :> x) = (unviewr v >< xs) :> x
+#endif
+
+instance Monoid (ViewR a) where
+  mempty     = EmptyR
+#if MIN_VERSION_base(4,9,0)
+  mappend    = (S.<>)
+#else
+  v `mappend` EmptyR = v
+  v `mappend` (xs :> x) =(unviewr v >< xs) :> x
+#endif
+
+viewl :: FMList a -> ViewL a
+viewl = foldMap (:< nil)
+
+viewr :: FMList a -> ViewR a
+viewr = foldMap (nil :>)
 
 head         :: FMList a -> a
 head l       = mhead l `fromMaybeOrError` "Data.FMList.head: empty list"
 
 tail         :: FMList a -> FMList a
-tail l       = if null l then error "Data.FMList.tail: empty list" else drop (1::Int) l
+tail l       = case viewl l of
+  EmptyL  -> error "Data.FMList.tail: empty list"
+  _ :< l' -> l'
 
 last         :: FMList a -> a
 last l       = getLast (unFM l (Last . Just)) `fromMaybeOrError` "Data.FMList.last: empty list"
 
 init         :: FMList a -> FMList a
-init l       = if null l then error "Data.FMList.init: empty list" else reverse . drop (1::Int) . reverse $ l
+init l       = case viewr l of
+  EmptyR  -> error "Data.FMList.init: empty list"
+  l' :> _ -> l'
 
 reverse      :: FMList a -> FMList a
 reverse l    = FM $ getDual . unFM l . (Dual .)
@@ -198,6 +282,19 @@ flatten      = transform foldMap
 filter       :: (a -> Bool) -> FMList a -> FMList a
 filter p     = transform (\f x -> if p x then f x else mempty)
 
+mapMaybe     :: (a -> Maybe b) -> FMList a -> FMList b
+mapMaybe p   = transform (\f x -> maybe mempty f (p x))
+
+filterM      :: Applicative m => (a -> m Bool) -> FMList a -> m (FMList a)
+filterM p l  = unWrapApp $ unFM l $ \a ->
+  let
+    go pr
+      | pr = one a
+      | otherwise = nil
+  in WrapApp $ fmap go (p a)
+
+wither      :: Applicative m => (a -> m (Maybe b)) -> FMList a -> m (FMList b)
+wither p l  = unWrapApp $ unFM l $ \a -> WrapApp $ fmap (maybe nil one) (p a)
 
 -- transform the foldMap to foldr with state.
 transformCS  :: (forall m. Monoid m => (b -> m) -> a -> (m -> s -> m) -> s -> m) -> s -> FMList a -> FMList b
@@ -232,6 +329,8 @@ repeat       = cycle . one
 
 -- | 'cycle' repeats a list to create an infinite list.
 -- It is also accessible from the end, where @last (cycle l)@ equals @last l@.
+--
+-- Caution: @cycle 'empty'@ is an infinite loop.
 cycle        :: FMList a -> FMList a
 cycle l      = l >< cycle l >< l
 
@@ -247,7 +346,9 @@ cycle l      = l >< cycle l >< l
 -- > fromList [10,9,8,7,6,5,4,3,2,1]
 --
 unfoldr      :: (b -> Maybe (a, b)) -> b -> FMList a
-unfoldr g    = unfold (maybe empty (\(a, b) -> Right a `pair` Left b) . g)
+unfoldr g = go
+  where
+    go b = maybe nil (\(a, b') -> cons a (go b')) (g b)
 
 -- | 'unfold' builds a list from a seed value.
 -- The function takes the seed and returns an 'FMList' of values.
@@ -262,30 +363,30 @@ unfoldr g    = unfold (maybe empty (\(a, b) -> Right a `pair` Left b) . g)
 unfold       :: (b -> FMList (Either b a)) -> b -> FMList a
 unfold g     = transform (\f -> either (foldMap f . unfold g) f) . g
 
-
+-- | This is essentially the same as 'Data.Monoid.Ap'. We include it here
+-- partly for compatibility with older base versions. But as discussed at the
+-- local definition of '<>', it can be slightly better for performance to have
+-- 'mappend' for this type defined in terms of 'mappend' for the underlying
+-- 'Monoid' rather than 'S.<>' for the underlying 'Semigroup'.
 newtype WrapApp f m = WrapApp { unWrapApp :: f m }
 
 #if MIN_VERSION_base(4,9,0)
-instance (Applicative f, Semigroup m) => Semigroup (WrapApp f m) where
-  WrapApp a <> WrapApp b = WrapApp $ (<>) <$> a <*> b
+instance (Applicative f, Monoid m) => Semigroup (WrapApp f m) where
+  WrapApp a <> WrapApp b = WrapApp $ liftA2 (<>) a b
 
-instance (Applicative f, Semigroup m, Monoid m) => Monoid (WrapApp f m) where
+instance (Applicative f, Monoid m) => Monoid (WrapApp f m) where
   mempty  = WrapApp $ pure mempty
-  mappend = (<>)
+  mappend = (S.<>)
 #else
 instance (Applicative f, Monoid m) => Monoid (WrapApp f m) where
   mempty                          = WrapApp $ pure mempty
-  mappend (WrapApp a) (WrapApp b) = WrapApp $ mappend <$> a <*> b
+  mappend (WrapApp a) (WrapApp b) = WrapApp $ liftA2 mappend a b
 #endif
 
 -- | Map each element of a structure to an action, evaluate these actions from left to right,
 -- and concat the monoid results.
 foldMapA
-  :: ( Foldable t, Applicative f
-#if MIN_VERSION_base(4,9,0)
-     , Semigroup m
-#endif
-     , Monoid m)
+  :: ( Foldable t, Applicative f, Monoid m)
   => (a -> f m) -> t a -> f m
 foldMapA f = unWrapApp . foldMap (WrapApp . f)
 
@@ -313,6 +414,9 @@ instance Applicative FMList where
   gs <*> xs  = transform (\f g -> unFM xs (f . g)) gs
   as <*  bs  = transform (\f a -> unFM bs (const (f a))) as
   as  *> bs  = transform (\f   -> const (unFM bs f)) as
+#if MIN_VERSION_base (4,10,0)
+  liftA2 g xs ys = transform (\f x -> unFM ys (\y -> f (g x y))) xs
+#endif
 
 #if MIN_VERSION_base(4,9,0)
 instance Semigroup (FMList a) where
@@ -322,7 +426,7 @@ instance Semigroup (FMList a) where
 instance Monoid (FMList a) where
   mempty     = nil
 #if MIN_VERSION_base(4,9,0)
-  mappend    = (<>)
+  mappend    = (S.<>)
 #else
   mappend    = (><)
 #endif
