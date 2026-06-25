@@ -219,9 +219,7 @@ instance Semigroup (ViewL a) where
 
 instance Monoid (ViewL a) where
   mempty     = EmptyL
-#if MIN_VERSION_base(4,9,0)
-  mappend    = (S.<>)
-#else
+#if !MIN_VERSION_base(4,9,0)
   EmptyL `mappend` v = v
   (x :< xs) `mappend` v = x :< (xs >< unviewl v)
 #endif
@@ -244,9 +242,7 @@ instance Semigroup (ViewR a) where
 
 instance Monoid (ViewR a) where
   mempty     = EmptyR
-#if MIN_VERSION_base(4,9,0)
-  mappend    = (S.<>)
-#else
+#if !MIN_VERSION_base(4,9,0)
   v `mappend` EmptyR = v
   v `mappend` (xs :> x) =(unviewr v >< xs) :> x
 #endif
@@ -376,7 +372,6 @@ instance (Applicative f, Monoid m) => Semigroup (WrapApp f m) where
 
 instance (Applicative f, Monoid m) => Monoid (WrapApp f m) where
   mempty  = WrapApp $ pure mempty
-  mappend = (S.<>)
 #else
 instance (Applicative f, Monoid m) => Monoid (WrapApp f m) where
   mempty                          = WrapApp $ pure mempty
@@ -402,7 +397,6 @@ instance Traversable FMList where
   traverse f = foldMapA (fmap one . f)
 
 instance Monad FMList where
-  return     = pure
   m >>= g    = transform (\f -> foldMap f . g) m
   (>>)       = (*>)
 
@@ -425,9 +419,7 @@ instance Semigroup (FMList a) where
 
 instance Monoid (FMList a) where
   mempty     = nil
-#if MIN_VERSION_base(4,9,0)
-  mappend    = (S.<>)
-#else
+#if !MIN_VERSION_base(4,9,0)
   mappend    = (><)
 #endif
 
